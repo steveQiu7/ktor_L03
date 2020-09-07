@@ -1,18 +1,25 @@
 package com.example
 
+import com.example.dao.City
+import com.example.dao.User
+import com.example.table.Cities
+import com.example.table.Users
+import com.fasterxml.jackson.databind.SerializationFeature
 import io.ktor.application.*
-import io.ktor.response.*
-import io.ktor.request.*
-import io.ktor.routing.*
-import io.ktor.http.*
-import io.ktor.html.*
-import kotlinx.html.*
-import kotlinx.css.*
-import com.fasterxml.jackson.databind.*
-import io.ktor.jackson.*
-import io.ktor.features.*
 import io.ktor.client.*
 import io.ktor.client.engine.apache.*
+import io.ktor.features.*
+import io.ktor.html.*
+import io.ktor.http.*
+import io.ktor.jackson.*
+import io.ktor.response.*
+import io.ktor.routing.*
+import kotlinx.css.*
+import kotlinx.html.*
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.SchemaUtils
+import org.jetbrains.exposed.sql.transactions.transaction
+
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
@@ -29,41 +36,93 @@ fun Application.module(testing: Boolean = false) {
     val client = HttpClient(Apache) {
     }
 
+    //先連線到 Ｈ2
+    Database.connect(
+        url = "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1",
+        driver = "org.h2.Driver"
+    )
+
+    //先把資料把建立起來
+    transaction {
+        SchemaUtils.create(Cities, Users)
+    }
+
+    //先寫一些資料進去 H2
+    transaction {
+
+        val cityStPeter = City.new { name = "St. Petersburg" }
+        val cityMunich = City.new { name = "Munich" }
+
+        User.new {
+            name = "User A"
+            city = cityStPeter
+            age = 5
+        }
+
+        User.new {
+            name = "User B"
+            city = cityStPeter
+            age = 27
+        }
+
+        User.new {
+            name = "User C"
+            city = cityMunich
+            age = 42
+        }
+    }
+
     routing {
+
+        //首頁:回傳 Hello, world
         get("/") {
-            call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
+            call.respondText("Hello, world")
         }
 
-        get("/html-dsl") {
-            call.respondHtml {
-                body {
-                    h1 { +"HTML" }
-                    ul {
-                        for (n in 1..10) {
-                            li { +"$n" }
-                        }
-                    }
+        //城市頁: 回傳所有城市的名字
+        get("/cities") {
+            val cities = transaction {
+                City.all().joinToString { it.name }
+            }
+            call.respondText(cities)
+        }
+
+        //使用者頁:
+        get("/users") {
+            val users = transaction {
+                User.all().joinToString { "${it.name} city:${it.city.name} age:${it.age}" }
+            }
+            call.respondText(users)
+        }
+
+        //insert 兩個
+        get("/generate-user") {
+            transaction {
+                SchemaUtils.create(Cities, Users)
+
+                val cityTaipeiCity = City.new { name = "Taipei" }
+                val cityHischuCity = City.new { name = "HisnChu" }
+
+                User.new {
+                    name = "demo"
+                    city = cityTaipeiCity
+                    age = 666
+                }
+
+                User.new {
+                    name = "yaya"
+                    city = cityHischuCity
+                    age = 777
                 }
             }
+            call.respondText("generate-user success", contentType = ContentType.Text.Plain)
         }
 
-        get("/styles.css") {
-            call.respondCss {
-                body {
-                    backgroundColor = Color.red
-                }
-                p {
-                    fontSize = 2.em
-                }
-                rule("p.myclass") {
-                    color = Color.blue
-                }
-            }
+        get("/get-user") {
+            val users = transaction { User.all().joinToString { "user:${it.name} city:${it.city.name} age:${it.age}" } }
+            call.respondText(users,contentType = ContentType.Text.Plain)
         }
 
-        get("/json/jackson") {
-            call.respond(mapOf("hello" to "world"))
-        }
     }
 }
 
